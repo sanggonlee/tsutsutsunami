@@ -1,30 +1,21 @@
-import { readTextFile } from './util.js';
-//var readTextFile = require('./util').readTextFile;
-var viewer = new Cesium.Viewer('cesiumContainer');
+import TimelineControl from './TimelineControl.js';
+import SourceEntity from './SourceEntity.js';
+import { readTextFile, formatDate } from './util.js';
 
+const viewer = new Cesium.Viewer('cesiumContainer');
 
+let sources = [];
+let waves = [];
 
-const sourceData = {
-  id: 53,
-  year: 684,
-  magnitude: 8.4,
-  //country: 'JAPAN',
-  latitude: 32.5,
-  longitude: 134 
-};
+const currentSourceEntities = [];
 
-const waveData = {
-  sourceId: 53,
-  id: 35,
-  country: 'JAPAN',
-  latitude: 33.51,
-  longitude: 133.44,
-  distance: 124,
-  maximumHeight: null
-};
+let timeline = new TimelineControl(viewer);
+timeline.setYearChangeCallback((newYear) => renderObjectsForYear(newYear));
 
 const normalizeSource = row => ({
   id: row[0],
+  year: parseInt(row[1]),
+  magnitude: row[9] ? parseFloat(row[9]) : 5,
   latitude: parseFloat(row[14]),
   longitude: parseFloat(row[15])
 });
@@ -37,62 +28,80 @@ const normalizeWave = row => ({
   maximumHeight: parseFloat(row[18])
 });
 
-const sources = [];
+const loadData = () => {
+  return Promise.all([
+    loadSources(),
+    loadWaves()
+  ]).then(data => {
+    sources = data[0];
+    waves = data[1];
+  });
+};
 
-console.log('asd');
-loadSources();
-//loadWaves();
-
-function loadSources() {
+const loadSources = () => {
   return readTextFile('./data/sources.csv')
     .then(sourceRawData => {
-      sourceRawData.toString().split('\n').forEach(line => {
-        const entries = line.split(',');
-        sources.push(normalizeSource(entries));
-      });
-
-      sources.filter(s => !isNaN(s.latitude) && !isNaN(s.longitude)).forEach((source, i) => {
-        if (i === 0) {
-          return;
-        }
-        viewer.entities.add({
-          position: Cesium.Cartesian3.fromDegrees(source.longitude, source.latitude),
-          name: 'Source',
-          ellipse: {
-            semiMinorAxis: 30000,
-            semiMajorAxis: 30000,
-            material: Cesium.Color.RED
-          }
-        });
-      });
-
-      //viewer.zoomTo(viewer.entities);
-  });
+      return sourceRawData.toString()
+        .split('\n')
+        .map(line => line.split(','))
+        .map(normalizeSource)
+        .filter(s => !isNaN(s.latitude) && !isNaN(s.longitude));
+    });
 }
 
-function loadWaves() {
+const loadWaves = () => {
   return readTextFile('./data/waves.csv')
     .then(sourceRawData => {
-      sourceRawData.toString().split('\n').forEach(line => {
-        const entries = line.split(',');
-        sources.push(normalizeWave(entries));
-      });
-
-      sources.filter(s => !isNaN(s.latitude) && !isNaN(s.longitude)).forEach((source, i) => {
-        if (i === 0) {
-          return;
-        }
-        viewer.entities.add({
-          position: Cesium.Cartesian3.fromDegrees(source.longitude, source.latitude),
-          name: 'Source',
-          ellipse: {
-            semiMinorAxis: 20000,
-            semiMajorAxis: 20000,
-            material: Cesium.Color.BLUE
-          }
-        });
-      });
-
-      //viewer.zoomTo(viewer.entities);
-  });
+      return sourceRawData.toString()
+        .split('\n')
+        .map(line => line.split(','))
+        .map(normalizeWave)
+        .filter(s => !isNaN(s.latitude) && !isNaN(s.longitude));
+    });
 }
+
+const getDataByYear = year => {
+  return sources
+    .filter(s => s.year === year)
+    .map(s => ({
+      ...s,
+      waves: waves.filter(w => w.sourceId === s.id)
+    }));
+};
+
+const renderObjectsForYear = year => {
+  currentSourceEntities.forEach(sourceEntity => sourceEntity.destroy());
+  const yearData = getDataByYear(year);
+  yearData.forEach(sourceData => {
+    const source = new SourceEntity(viewer, timeline, sourceData);
+    currentSourceEntities.push(source);
+    source.render();
+  });
+};
+
+const start = () => {
+  loadData()
+    .then(() => renderObjectsForYear(0));
+};
+
+const getTimeTravelInput = () => document.getElementById('timeTravelInput').value;
+
+const timeTravelGotoButton = document.getElementById('timeTravelGoto');
+timeTravelGotoButton.addEventListener('click', () => {
+  const yearInput = getTimeTravelInput();
+  if (isNaN(yearInput) || !Number.isInteger(parseInt(yearInput))) {
+    return;
+  }
+  timeline.setTime(Cesium.JulianDate.fromIso8601(formatDate(parseInt(yearInput))));
+});
+
+const timeTravelIncrButton = document.getElementById('timeTravelIncr');
+timeTravelIncrButton.addEventListener('click', () => {
+  const yearInput = getTimeTravelInput();
+  if (isNaN(yearInput) || !Number.isInteger(parseInt(yearInput))) {
+    return;
+  }
+  timeline.setTime(Cesium.JulianDate.fromIso8601(formatDate(timeline.getCurrentYear() + parseInt(yearInput))));
+});
+
+start();

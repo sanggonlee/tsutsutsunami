@@ -6,11 +6,15 @@ export function readTextFile(file) {
       if (rawFile.readyState === 4) {
         if (rawFile.status === 200 || rawFile.status == 0) {
           var allText = rawFile.responseText;
-          console.log(allText);
           resolve(allText);
         }
       }
     }
     rawFile.send(null);
   });
+}
+
+export function formatDate(year) {
+  const isNegative = year < 0;
+  return `${isNegative ? '-' : ''}${Math.abs(year).toString().padStart(4, '0')}-01-01T00:00:00Z`;
 }
